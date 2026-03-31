@@ -8,3 +8,4 @@ build/
 node_modules/
 app/frontend/dist/
 .env
+.codex/
