@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ask-web-agent"
+version = "0.1.0"
+description = "Production-ready module version of the ask-the-web notebook prototype."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "ddgs==9.4.0",
+  "fastapi==0.116.1",
+  "langchain==0.3.26",
+  "langchain-community==0.3.27",
+  "langchain-openai==0.3.27",
+  "openai==1.86.0",
+  "uvicorn==0.35.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.27",
+  "pytest>=8.3",
+]
+
+[project.scripts]
+ask-web-agent = "ask_web_agent.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
