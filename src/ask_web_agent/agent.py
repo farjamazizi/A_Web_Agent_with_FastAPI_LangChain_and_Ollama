@@ -1,143 +1,121 @@
-"""LLM tool-calling workflow."""
+"""LangChain agent workflow."""
 
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
 from typing import Any
 
-from openai import OpenAI
+from langchain.agents import AgentType, initialize_agent
+from langchain.tools import Tool
+from langchain_openai import ChatOpenAI
 
 from .config import Settings
-from .schemas import to_schema
-
-SYSTEM_PROMPT = (
-    "You are an assistant that can call tools. "
-    "When the user's request needs a tool, respond only with "
-    'TOOL_CALL:{"name": <tool_name>, "args": { ... }} '
-    "with valid JSON and no markdown fences. "
-    "If no tool is needed, answer plainly."
+from .tools import (
+    check_model_status,
+    compare_weather,
+    get_current_weather,
+    list_available_tools,
+    search_web,
 )
 
 
-class ToolCallError(ValueError):
-    """Raised when a tool call cannot be parsed or executed."""
+class AgentExecutionError(RuntimeError):
+    """Raised when the model or tool agent cannot complete a request."""
 
 
-def parse_tool_call(raw_response: str) -> dict[str, Any] | None:
-    """Extract a tool call payload from model output."""
-
-    marker = "TOOL_CALL:"
-    if marker not in raw_response:
-        return None
-
-    payload_text = raw_response.split(marker, maxsplit=1)[1].strip()
-    payload_text = payload_text.removeprefix("```json").removeprefix("```").strip()
-    payload_text = payload_text.removesuffix("```").strip()
-
-    json_text = _extract_first_json_object(payload_text)
-    if json_text is None:
-        raise ToolCallError("Model returned invalid tool JSON.")
-
-    try:
-        payload = json.loads(json_text)
-    except json.JSONDecodeError as exc:
-        raise ToolCallError("Model returned invalid tool JSON.") from exc
-
-    if "name" not in payload:
-        raise ToolCallError("Tool call payload is missing 'name'.")
-
-    payload.setdefault("args", {})
-    return payload
+def _json_dump(value: Any) -> str:
+    return json.dumps(value, indent=2, ensure_ascii=True)
 
 
-def _extract_first_json_object(text: str) -> str | None:
-    start = text.find("{")
-    if start == -1:
-        return None
+class LangChainWebAgent:
+    """Minimal LangChain wrapper around an OpenAI-compatible chat model."""
 
-    depth = 0
-    in_string = False
-    escape = False
-
-    for index in range(start, len(text)):
-        char = text[index]
-
-        if in_string:
-            if escape:
-                escape = False
-            elif char == "\\":
-                escape = True
-            elif char == '"':
-                in_string = False
-            continue
-
-        if char == '"':
-            in_string = True
-        elif char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                return text[start : index + 1]
-
-    return None
-
-
-class ToolCallingAgent:
-    """Minimal OpenAI-compatible tool-calling wrapper."""
-
-    def __init__(self, settings: Settings, tools: dict[str, Callable[..., Any]]) -> None:
+    def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self.tools = tools
-        self.client = OpenAI(
+        self.llm = ChatOpenAI(
+            model=settings.model_name,
+            temperature=settings.temperature,
             api_key=settings.openai_api_key,
             base_url=settings.openai_base_url,
         )
-
-    def get_tool_schemas(self) -> list[dict[str, Any]]:
-        return [to_schema(tool) for tool in self.tools.values()]
-
-    def decide(self, question: str) -> str:
-        """Ask the model whether it wants to call a tool."""
-
-        response = self.client.chat.completions.create(
-            model=self.settings.model_name,
-            temperature=self.settings.temperature,
-            messages=[
-                {
-                    "role": "system",
-                    "content": SYSTEM_PROMPT,
-                },
-                {
-                    "role": "system",
-                    "name": "tool_spec",
-                    "content": json.dumps(self.get_tool_schemas()),
-                },
-                {"role": "user", "content": question},
-            ],
+        self.executor = initialize_agent(
+            tools=self._build_tools(),
+            llm=self.llm,
+            agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
+            verbose=False,
+            handle_parsing_errors=True,
+            return_intermediate_steps=True,
         )
-        return response.choices[0].message.content or ""
+
+    def _build_tools(self) -> list[Tool]:
+        return [
+            Tool(
+                name="get_current_weather",
+                func=get_current_weather,
+                description=(
+                    "Use this to get live current weather for one city. "
+                    "Input should be the city name and optionally a unit."
+                ),
+            ),
+            Tool(
+                name="compare_weather",
+                func=lambda input_text: self._compare_weather_from_text(input_text),
+                description=(
+                    "Use this to compare weather between two cities. "
+                    "Input format: city_a | city_b | unit. "
+                    "Example: San Diego | Boston | celsius"
+                ),
+            ),
+            Tool(
+                name="search_web",
+                func=lambda query: _json_dump(search_web(query, self.settings.web_search_max_results)),
+                description=(
+                    "Use this to search the web when the question needs fresh information. "
+                    "Input should be a search query string."
+                ),
+            ),
+            Tool(
+                name="check_model_status",
+                func=lambda _: _json_dump(check_model_status()),
+                description="Use this to inspect model backend availability.",
+            ),
+            Tool(
+                name="list_available_tools",
+                func=lambda _: _json_dump(list_available_tools()),
+                description="Use this to see which tools the agent can call.",
+            ),
+        ]
+
+    def _compare_weather_from_text(self, input_text: str) -> str:
+        parts = [part.strip() for part in input_text.split("|")]
+        if len(parts) < 2:
+            raise ValueError("compare_weather expects 'city_a | city_b | unit'.")
+        city_a, city_b = parts[0], parts[1]
+        unit = parts[2] if len(parts) > 2 and parts[2] else "celsius"
+        return compare_weather(city_a=city_a, city_b=city_b, unit=unit)
 
     def answer(self, question: str) -> dict[str, Any]:
-        """Return either a direct answer or the result of one tool call."""
+        """Run the LangChain agent and normalize its response."""
 
-        raw_response = self.decide(question)
-        payload = parse_tool_call(raw_response)
-        if payload is None:
-            return {"mode": "answer", "content": raw_response}
+        try:
+            result = self.executor.invoke({"input": question})
+        except Exception as exc:
+            raise AgentExecutionError(str(exc)) from exc
 
-        tool_name = payload["name"]
-        tool_args = payload.get("args", {})
+        intermediate_steps = result.get("intermediate_steps", [])
+        steps = []
+        for action, observation in intermediate_steps:
+            steps.append(
+                {
+                    "tool": getattr(action, "tool", "unknown"),
+                    "tool_input": getattr(action, "tool_input", ""),
+                    "log": getattr(action, "log", ""),
+                    "observation": observation if isinstance(observation, str) else _json_dump(observation),
+                }
+            )
 
-        if tool_name not in self.tools:
-            raise ToolCallError(f"Unknown tool '{tool_name}'.")
-
-        result = self.tools[tool_name](**tool_args)
         return {
-            "mode": "tool_call",
-            "tool_name": tool_name,
-            "tool_args": tool_args,
-            "raw_response": raw_response,
-            "result": result,
+            "mode": "agent",
+            "content": result.get("output", ""),
+            "steps": steps,
         }

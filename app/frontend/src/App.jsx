@@ -14,15 +14,17 @@ const defaultCompareForm = {
 };
 
 const defaultSearchForm = {
-  query: "Boston weather today",
+  query: "latest AI browser tools",
   maxResults: 5
 };
 
-const defaultAskQuestion = "Can you compare the weather between San Diego and Boston?";
+const defaultAskQuestion =
+  "Compare the weather in San Diego and Boston.";
 
 function App() {
   const [health, setHealth] = useState({ status: "checking", detail: "Connecting to backend..." });
   const [toolCatalog, setToolCatalog] = useState([]);
+  const [toolSchemas, setToolSchemas] = useState([]);
   const [modelStatus, setModelStatus] = useState(null);
   const [weatherForm, setWeatherForm] = useState(defaultWeatherForm);
   const [weatherResult, setWeatherResult] = useState(null);
@@ -64,14 +66,20 @@ function App() {
       }
 
       try {
-        const toolsResponse = await fetch(`${API_BASE_URL}/tools`);
+        const [toolsResponse, schemasResponse] = await Promise.all([
+          fetch(`${API_BASE_URL}/tools`),
+          fetch(`${API_BASE_URL}/tool-schemas`)
+        ]);
         const toolsData = await toolsResponse.json();
+        const schemasData = await schemasResponse.json();
         if (!cancelled) {
           setToolCatalog(toolsData.tools || []);
+          setToolSchemas(schemasData.tools || []);
         }
       } catch (error) {
         if (!cancelled) {
           setToolCatalog([]);
+          setToolSchemas([]);
         }
       } finally {
         if (!cancelled) {
@@ -79,26 +87,7 @@ function App() {
         }
       }
 
-      try {
-        const statusResponse = await fetch(`${API_BASE_URL}/model-status`);
-        const statusData = await statusResponse.json();
-        if (!cancelled) {
-          setModelStatus(statusData);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setModelStatus({
-            backend_reachable: false,
-            model_available: false,
-            configured_model: "unknown",
-            message: "Could not check model status."
-          });
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading((current) => ({ ...current, modelStatus: false }));
-        }
-      }
+      await refreshModelStatus(cancelled);
     }
 
     loadInitialData();
@@ -106,6 +95,30 @@ function App() {
       cancelled = true;
     };
   }, []);
+
+  async function refreshModelStatus(cancelled = false) {
+    setLoading((current) => ({ ...current, modelStatus: true }));
+    try {
+      const response = await fetch(`${API_BASE_URL}/model-status`);
+      const data = await response.json();
+      if (!cancelled) {
+        setModelStatus(data);
+      }
+    } catch (error) {
+      if (!cancelled) {
+        setModelStatus({
+          backend_reachable: false,
+          model_available: false,
+          configured_model: "unknown",
+          message: "Could not check model status."
+        });
+      }
+    } finally {
+      if (!cancelled) {
+        setLoading((current) => ({ ...current, modelStatus: false }));
+      }
+    }
+  }
 
   async function request(path, payload) {
     const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -183,109 +196,104 @@ function App() {
     }
   }
 
-  async function refreshModelStatus() {
-    setLoading((current) => ({ ...current, modelStatus: true }));
-    try {
-      const response = await fetch(`${API_BASE_URL}/model-status`);
-      const data = await response.json();
-      setModelStatus(data);
-    } catch (error) {
-      setModelStatus({
-        backend_reachable: false,
-        model_available: false,
-        configured_model: "unknown",
-        message: "Could not check model status."
-      });
-    } finally {
-      setLoading((current) => ({ ...current, modelStatus: false }));
-    }
-  }
-
   return (
     <main className="page-shell">
       <section className="hero">
         <div className="hero-copy">
-          <p className="eyebrow">React Frontend</p>
-          <h1>Explore your agent, tools, and model from one screen.</h1>
+          <p className="eyebrow">Notebook to app</p>
+          <h1>Ask your model. Let it use tools when it needs them.</h1>
           <p className="hero-text">
-            The UI now exposes direct tools, an agent question flow, live backend status, and a
-            tool catalog pulled from your FastAPI project.
+            This frontend talks to a FastAPI backend that wraps a LangChain agent, live weather,
+            web search, and an OpenAI-compatible model endpoint.
           </p>
           <div className="status-row">
-            <span className={`status-pill status-${health.status}`}>{health.status}</span>
-            <span className="status-text">{health.detail}</span>
+            <span className={health.status === "ok" ? "status-pill status-ok" : "status-pill status-offline"}>
+              API {health.status}
+            </span>
+            <span className="status-pill">{health.detail}</span>
           </div>
         </div>
-        <div className="hero-card">
-          <p className="card-label">Backend target</p>
-          <p className="card-value">{API_BASE_URL}</p>
-          <p className="card-note">
-            If your API runs elsewhere, set <code>VITE_API_BASE_URL</code>.
-          </p>
-        </div>
+
+        <section className="hero-card">
+          <div className="info-panel-header">
+            <div>
+              <p className="card-label">Model backend</p>
+              <h2>Runtime status</h2>
+            </div>
+            <button type="button" className="ghost-button" onClick={() => refreshModelStatus()}>
+              Refresh
+            </button>
+          </div>
+          <ModelStatusCard modelStatus={modelStatus} />
+        </section>
       </section>
 
-      <section className="dashboard-grid">
-        <aside className="sidebar-stack">
-          <section className="panel info-panel">
-            <div className="info-panel-header">
-              <div>
-                <h2>Model status</h2>
-                <p className="panel-copy">Checks whether Ollama and the configured model are reachable.</p>
+      <section className="workspace">
+        <section className="dashboard-grid">
+          <aside className="sidebar-stack">
+            <section className="panel info-panel">
+              <div className="info-panel-header">
+                <div>
+                  <p className="card-label">Toolbox</p>
+                  <h2>Available tools</h2>
+                </div>
               </div>
-              <button className="ghost-button" onClick={refreshModelStatus} disabled={loading.modelStatus}>
-                {loading.modelStatus ? "Refreshing..." : "Refresh"}
+              <ToolCatalog tools={toolCatalog} loading={loading.tools} />
+            </section>
+
+            <section className="panel info-panel">
+              <div className="info-panel-header">
+                <div>
+                  <p className="card-label">Schemas</p>
+                  <h2>Tool contracts</h2>
+                </div>
+              </div>
+              <SchemaCatalog schemas={toolSchemas} />
+            </section>
+          </aside>
+
+          <section className="workspace">
+            <div className="panel-tabs">
+              <button className={tabClass(activePanel, "ask")} onClick={() => setActivePanel("ask")}>
+                Ask agent
+              </button>
+              <button
+                className={tabClass(activePanel, "weather")}
+                onClick={() => setActivePanel("weather")}
+              >
+                Weather
+              </button>
+              <button
+                className={tabClass(activePanel, "compare")}
+                onClick={() => setActivePanel("compare")}
+              >
+                Compare
+              </button>
+              <button className={tabClass(activePanel, "search")} onClick={() => setActivePanel("search")}>
+                Search
               </button>
             </div>
-            <ModelStatusCard modelStatus={modelStatus} />
-          </section>
 
-          <section className="panel info-panel">
-            <h2>Available tools</h2>
-            <p className="panel-copy">Pulled from the backend so the frontend stays in sync.</p>
-            <ToolCatalog tools={toolCatalog} loading={loading.tools} />
-          </section>
-        </aside>
-
-        <section className="workspace">
-          <div className="panel-tabs">
-            <button className={tabClass(activePanel, "ask")} onClick={() => setActivePanel("ask")}>
-              Ask Agent
-            </button>
-            <button
-              className={tabClass(activePanel, "weather")}
-              onClick={() => setActivePanel("weather")}
-            >
-              Weather
-            </button>
-            <button
-              className={tabClass(activePanel, "compare")}
-              onClick={() => setActivePanel("compare")}
-            >
-              Compare
-            </button>
-            <button className={tabClass(activePanel, "search")} onClick={() => setActivePanel("search")}>
-              Search
-            </button>
-          </div>
-
-          <div className="panel-grid">
             <section className={panelClass(activePanel, "ask")}>
-              <h2>Ask the agent</h2>
+              <h2>Ask the LangChain agent</h2>
               <p className="panel-copy">
-                Send a natural-language request and let the model choose the right tool.
+                Send one natural-language question and let the model decide whether it should use
+                weather or search tools.
+              </p>
+              <p className="panel-copy">
+                This panel needs a working model backend. If you only want a direct weather
+                comparison, use the Compare tab instead.
               </p>
               <form onSubmit={handleAskSubmit} className="stack">
                 <label className="field">
                   <span>Question</span>
                   <textarea
-                    rows="5"
                     value={askQuestion}
                     onChange={(event) => setAskQuestion(event.target.value)}
                   />
                 </label>
                 <button className="action-button" disabled={loading.ask}>
-                  {loading.ask ? "Thinking..." : "Run /ask"}
+                  {loading.ask ? "Running agent..." : "Run /ask"}
                 </button>
               </form>
               <ResultCard
@@ -296,8 +304,8 @@ function App() {
             </section>
 
             <section className={panelClass(activePanel, "weather")}>
-              <h2>Weather tool</h2>
-              <p className="panel-copy">Direct access to the single-city weather endpoint.</p>
+              <h2>Fetch live weather</h2>
+              <p className="panel-copy">Call the weather tool directly through the API.</p>
               <form onSubmit={handleWeatherSubmit} className="stack">
                 <label className="field">
                   <span>City</span>
@@ -322,7 +330,7 @@ function App() {
                   </select>
                 </label>
                 <button className="action-button" disabled={loading.weather}>
-                  {loading.weather ? "Loading..." : "Run /weather"}
+                  {loading.weather ? "Fetching..." : "Run /weather"}
                 </button>
               </form>
               <ResultCard
@@ -334,10 +342,10 @@ function App() {
 
             <section className={panelClass(activePanel, "compare")}>
               <h2>Compare two cities</h2>
-              <p className="panel-copy">Use the new direct comparison endpoint without going through the agent.</p>
+              <p className="panel-copy">Run the comparison tool without involving the model.</p>
               <form onSubmit={handleCompareSubmit} className="stack">
                 <label className="field">
-                  <span>First city</span>
+                  <span>City A</span>
                   <input
                     type="text"
                     value={compareForm.cityA}
@@ -347,7 +355,7 @@ function App() {
                   />
                 </label>
                 <label className="field">
-                  <span>Second city</span>
+                  <span>City B</span>
                   <input
                     type="text"
                     value={compareForm.cityB}
@@ -381,7 +389,7 @@ function App() {
 
             <section className={panelClass(activePanel, "search")}>
               <h2>Search the web</h2>
-              <p className="panel-copy">Query the search endpoint and browse normalized search results.</p>
+              <p className="panel-copy">Query DuckDuckGo through the backend and inspect normalized results.</p>
               <form onSubmit={handleSearchSubmit} className="stack">
                 <label className="field">
                   <span>Query</span>
@@ -414,7 +422,7 @@ function App() {
               </form>
               <SearchResults results={searchResult} />
             </section>
-          </div>
+          </section>
         </section>
       </section>
     </main>
@@ -451,18 +459,21 @@ function AskResultView({ data }) {
     <div className="ask-result">
       <div className="result-chip-row">
         <span className="result-chip">{data.mode}</span>
-        {data.tool_name && <span className="result-chip secondary">{data.tool_name}</span>}
+        <span className="result-chip secondary">{data.steps?.length || 0} tool steps</span>
       </div>
-      {data.result && (
-        <p className="result-lead">
-          {typeof data.result === "string" ? data.result : JSON.stringify(data.result, null, 2)}
-        </p>
-      )}
-      {!data.result && data.content && <p className="result-lead">{data.content}</p>}
-      {data.raw_response && (
+      <p className="result-lead">{data.content}</p>
+      {!!data.steps?.length && (
         <details>
-          <summary>Model raw output</summary>
-          <pre>{data.raw_response}</pre>
+          <summary>Agent tool trace</summary>
+          {data.steps.map((step, index) => (
+            <div key={`${step.tool}-${index}`} className="trace-step">
+              <h4>{step.tool}</h4>
+              <p>
+                <strong>Input:</strong> {String(step.tool_input)}
+              </p>
+              <pre>{step.observation}</pre>
+            </div>
+          ))}
         </details>
       )}
     </div>
@@ -516,6 +527,23 @@ function ToolCatalog({ tools, loading }) {
         <article key={tool.name} className="tool-item">
           <h3>{tool.name}</h3>
           <p>{tool.description}</p>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function SchemaCatalog({ schemas }) {
+  if (!schemas.length) {
+    return <p className="result-empty">No schemas were returned by the backend.</p>;
+  }
+
+  return (
+    <div className="tool-list">
+      {schemas.map((schema) => (
+        <article key={schema.name} className="tool-item">
+          <h3>{schema.name}</h3>
+          <p>{schema.description}</p>
         </article>
       ))}
     </div>

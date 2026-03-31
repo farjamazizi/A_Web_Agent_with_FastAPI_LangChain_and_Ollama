@@ -4,13 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ask-web-agent"
-version = "0.1.0"
-description = "Production-ready module version of the ask-the-web notebook prototype."
+version = "0.2.0"
+description = "Production-ready Python package and React UI for a LangChain-powered ask-the-web agent."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "ddgs==9.4.0",
   "fastapi==0.116.1",
+  "httpx>=0.27",
   "langchain==0.3.26",
   "langchain-community==0.3.27",
   "langchain-openai==0.3.27",
@@ -20,7 +21,6 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-  "httpx>=0.27",
   "pytest>=8.3",
 ]
 

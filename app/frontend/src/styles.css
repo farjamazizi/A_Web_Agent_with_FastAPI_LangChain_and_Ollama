@@ -90,8 +90,6 @@ button {
 
 .hero-text,
 .panel-copy,
-.status-text,
-.card-note,
 .search-item p,
 .result-empty {
   color: var(--text-soft);
@@ -131,11 +129,6 @@ button {
 .status-offline {
   color: #450a0a;
   background: var(--danger);
-}
-
-.card-value {
-  font-size: 1.1rem;
-  word-break: break-word;
 }
 
 .workspace {
@@ -184,10 +177,6 @@ button {
   border-color: transparent;
 }
 
-.panel-grid {
-  display: grid;
-}
-
 .panel {
   border-radius: 28px;
   padding: 1.5rem;
@@ -211,7 +200,8 @@ button {
 .field span,
 .panel h2,
 .result-card h3,
-.search-item h3 {
+.search-item h3,
+.trace-step h4 {
   font-family: "Space Grotesk", sans-serif;
 }
 
@@ -275,7 +265,8 @@ button {
   color: var(--danger);
 }
 
-.result-body pre {
+.result-body pre,
+.trace-step pre {
   white-space: pre-wrap;
   word-break: break-word;
   background: rgba(15, 23, 42, 0.8);
@@ -303,6 +294,10 @@ button {
 
 .result-lead {
   font-size: 1.04rem;
+}
+
+.trace-step {
+  padding-top: 1rem;
 }
 
 .search-list {

@@ -15,6 +15,15 @@ class Settings:
     model_name: str = os.getenv("MODEL_NAME", "llama3.2:3b")
     temperature: float = float(os.getenv("MODEL_TEMPERATURE", "0.1"))
     web_search_max_results: int = int(os.getenv("WEB_SEARCH_MAX_RESULTS", "5"))
+    request_timeout_seconds: float = float(os.getenv("REQUEST_TIMEOUT_SECONDS", "20"))
+    allowed_origins: tuple[str, ...] = tuple(
+        origin.strip()
+        for origin in os.getenv(
+            "ALLOWED_ORIGINS",
+            "http://127.0.0.1:5173,http://localhost:5173",
+        ).split(",")
+        if origin.strip()
+    )
 
 
 def get_settings() -> Settings:

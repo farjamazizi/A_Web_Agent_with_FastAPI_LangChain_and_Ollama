@@ -1,11 +1,31 @@
 # Ask Web Agent
 
-Ask Web Agent is a small full-stack demo that turns the original `web_agent.ipynb` notebook into a reusable Python package with:
+Ask Web Agent turns the original [`web_agent.ipynb`](/home/farjam/python_web_agent_llm_demo/web_agent.ipynb) notebook into a reusable full-stack project with:
 
-- a FastAPI backend
-- a React frontend
-- an Ollama-compatible LLM tool-calling flow
-- direct tool endpoints for weather, comparison, search, tool discovery, and model status
+- a Python package under [`src/ask_web_agent`](/home/farjam/python_web_agent_llm_demo/src/ask_web_agent)
+- a FastAPI backend under [`app/backend`](/home/farjam/python_web_agent_llm_demo/app/backend)
+- a React + Vite frontend under [`app/frontend`](/home/farjam/python_web_agent_llm_demo/app/frontend)
+- a LangChain-powered agent that can decide when to use tools
+- real API integrations for live weather and web search
+
+## What changed from the notebook
+
+The notebook demonstrates:
+
+- simple Python tools
+- manual tool-call parsing
+- schema generation
+- LangChain agent setup
+- a web-search agent
+
+This project packages those ideas into a proper app:
+
+- installable module
+- configurable runtime settings
+- backend API endpoints
+- browser UI
+- CLI
+- tests
 
 ## Project layout
 
@@ -24,19 +44,43 @@ Ask Web Agent is a small full-stack demo that turns the original `web_agent.ipyn
 └── web_agent.ipynb
 ```
 
-## Features
+## Backend features
 
-- `POST /ask` lets the model choose a tool from a natural-language question
-- `POST /weather` returns weather text for one city
-- `POST /compare-weather` compares weather between two cities
+- `POST /ask` runs a LangChain agent against your configured model
+- `POST /weather` returns live weather from Open-Meteo
+- `POST /compare-weather` compares live weather between two cities
 - `POST /search` runs DuckDuckGo search through `ddgs`
-- `GET /tools` lists the project tools
-- `GET /model-status` checks whether the configured model backend is reachable
-- React frontend for trying the backend from a browser
+- `GET /tools` lists project tools
+- `GET /tool-schemas` exposes simple JSON schemas for those tools
+- `GET /model-status` checks whether your model backend is reachable
 
-## Backend setup
+## Model support
 
-From the project root:
+The backend uses `langchain-openai` with an OpenAI-compatible chat endpoint, so you can point it at:
+
+- Ollama's OpenAI-compatible API
+- OpenAI
+- another compatible local or hosted model gateway
+
+Environment variables:
+
+- `OPENAI_API_KEY`
+- `OPENAI_BASE_URL`
+- `MODEL_NAME`
+- `MODEL_TEMPERATURE`
+- `WEB_SEARCH_MAX_RESULTS`
+- `REQUEST_TIMEOUT_SECONDS`
+- `ALLOWED_ORIGINS`
+
+Example local defaults:
+
+```bash
+export OPENAI_API_KEY=ollama
+export OPENAI_BASE_URL=http://localhost:11434/v1
+export MODEL_NAME=llama3.2:3b
+```
+
+## Install
 
 ```bash
 python -m venv .venv
@@ -44,10 +88,16 @@ source .venv/bin/activate
 pip install -e '.[dev]'
 ```
 
-Run the API:
+## Run the backend
 
 ```bash
 uvicorn app.backend.main:app --reload
+```
+
+or
+
+```bash
+python -m ask_web_agent.cli serve
 ```
 
 Backend URLs:
@@ -55,9 +105,7 @@ Backend URLs:
 - `http://127.0.0.1:8000/health`
 - `http://127.0.0.1:8000/docs`
 
-## Frontend setup
-
-From the frontend directory:
+## Run the frontend
 
 ```bash
 cd app/frontend
@@ -69,103 +117,29 @@ Frontend URL:
 
 - `http://127.0.0.1:5173`
 
-The frontend expects the API at `http://127.0.0.1:8000` by default.
-
-If your backend runs elsewhere:
+If your API runs elsewhere:
 
 ```bash
 VITE_API_BASE_URL=http://127.0.0.1:8000 npm run dev
 ```
 
-## Model configuration
-
-The backend is configured through environment variables:
-
-- `OPENAI_API_KEY`
-- `OPENAI_BASE_URL`
-- `MODEL_NAME`
-- `MODEL_TEMPERATURE`
-- `WEB_SEARCH_MAX_RESULTS`
-
-Default values target an Ollama-compatible local server:
-
-- `OPENAI_BASE_URL=http://localhost:11434/v1`
-- `MODEL_NAME=llama3.2:3b`
-
-Typical Ollama flow:
+## CLI examples
 
 ```bash
-ollama serve
-ollama list
-ollama pull llama3.2:3b
+ask-web-agent weather "Stockholm"
+ask-web-agent compare-weather "San Diego" "Boston"
+ask-web-agent search "latest weather in Boston"
+ask-web-agent ask "Compare the weather in Stockholm and Berlin and summarize it."
 ```
 
-## Available tools
-
-Current tools live in [tools.py](/home/farjam/python_web_agent_llm_demo/src/ask_web_agent/tools.py):
-
-- `get_current_weather`
-- `compare_weather`
-- `search_web`
-- `check_model_status`
-- `list_available_tools`
-
-## API endpoints
-
-- `GET /health`
-- `GET /tools`
-- `GET /model-status`
-- `POST /weather`
-- `POST /compare-weather`
-- `POST /search`
-- `POST /ask`
-
-## Example requests
-
-Weather:
+## Testing
 
 ```bash
-curl -X POST http://127.0.0.1:8000/weather \
-  -H "Content-Type: application/json" \
-  -d '{"city":"San Diego","unit":"celsius"}'
-```
-
-Compare weather:
-
-```bash
-curl -X POST http://127.0.0.1:8000/compare-weather \
-  -H "Content-Type: application/json" \
-  -d '{"city_a":"San Diego","city_b":"Boston","unit":"celsius"}'
-```
-
-Ask the agent:
-
-```bash
-curl -X POST http://127.0.0.1:8000/ask \
-  -H "Content-Type: application/json" \
-  -d '{"question":"Can you compare the weather between San Diego and Boston?"}'
-```
-
-## CLI usage
-
-After installing the Python package:
-
-```bash
-ask-web-agent weather "San Diego"
-ask-web-agent search "Boston weather today"
-ask-web-agent ask "Can you compare the weather between San Diego and Boston?"
-```
-
-## Tests
-
-Run the tests from the project root:
-
-```bash
-pytest -q tests/test_api.py tests/test_schemas.py
+pytest -q
 ```
 
 ## Notes
 
-- The weather tool currently returns demo weather text rather than live weather data.
-- The ask flow depends on an OpenAI-compatible model backend, such as Ollama.
-- The frontend is a Vite + React app and the backend allows local CORS for port `5173`.
+- Weather data comes from Open-Meteo.
+- Web search uses DuckDuckGo through `ddgs`.
+- The LangChain agent uses a ReAct-style flow, which is usually more portable across local OpenAI-compatible backends than native tool-calling support.

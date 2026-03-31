@@ -8,37 +8,40 @@ from typing import Any
 
 import uvicorn
 
-from .agent import ToolCallingAgent
+from .agent import LangChainWebAgent
 from .api import create_app
 from .config import get_settings
 from .tools import compare_weather, get_current_weather, search_web
 
 
-def _make_agent() -> ToolCallingAgent:
-    settings = get_settings()
-    return ToolCallingAgent(
-        settings=settings,
-        tools={
-            "compare_weather": compare_weather,
-            "get_current_weather": get_current_weather,
-            "search_web": search_web,
-        },
-    )
+def _make_agent() -> LangChainWebAgent:
+    return LangChainWebAgent(settings=get_settings())
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="ask-web-agent")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    weather_parser = subparsers.add_parser("weather", help="Run the weather demo tool.")
+    weather_parser = subparsers.add_parser("weather", help="Get live weather for one city.")
     weather_parser.add_argument("city")
     weather_parser.add_argument("--unit", default="celsius")
+
+    compare_parser = subparsers.add_parser(
+        "compare-weather",
+        help="Compare live weather between two cities.",
+    )
+    compare_parser.add_argument("city_a")
+    compare_parser.add_argument("city_b")
+    compare_parser.add_argument("--unit", default="celsius")
 
     search_parser = subparsers.add_parser("search", help="Run the web search tool.")
     search_parser.add_argument("query")
     search_parser.add_argument("--max-results", type=int, default=None)
 
-    ask_parser = subparsers.add_parser("ask", help="Ask the model to decide on tool usage.")
+    ask_parser = subparsers.add_parser(
+        "ask",
+        help="Ask the LangChain agent to decide which tools to use.",
+    )
     ask_parser.add_argument("question")
 
     serve_parser = subparsers.add_parser("serve", help="Run the FastAPI server.")
@@ -54,6 +57,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "weather":
         print(get_current_weather(city=args.city, unit=args.unit))
+        return 0
+
+    if args.command == "compare-weather":
+        print(compare_weather(city_a=args.city_a, city_b=args.city_b, unit=args.unit))
         return 0
 
     if args.command == "search":

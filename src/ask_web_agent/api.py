@@ -9,8 +9,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from .agent import ToolCallError, ToolCallingAgent
+from .agent import AgentExecutionError, LangChainWebAgent
 from .config import get_settings
+from .schemas import to_schema
 from .tools import (
     check_model_status,
     compare_weather,
@@ -41,28 +42,16 @@ class CompareWeatherRequest(BaseModel):
 
 
 @lru_cache(maxsize=1)
-def _build_agent() -> ToolCallingAgent:
-    settings = get_settings()
-    return ToolCallingAgent(
-        settings=settings,
-        tools={
-            "check_model_status": check_model_status,
-            "compare_weather": compare_weather,
-            "get_current_weather": get_current_weather,
-            "list_available_tools": list_available_tools,
-            "search_web": search_web,
-        },
-    )
+def _build_agent() -> LangChainWebAgent:
+    return LangChainWebAgent(settings=get_settings())
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Ask Web Agent", version="0.1.0")
+    settings = get_settings()
+    app = FastAPI(title="Ask Web Agent", version="0.2.0")
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://127.0.0.1:5173",
-            "http://localhost:5173",
-        ],
+        allow_origins=list(settings.allowed_origins),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -76,15 +65,25 @@ def create_app() -> FastAPI:
     def tools() -> dict[str, list[dict[str, str]]]:
         return {"tools": list_available_tools()}
 
+    @app.get("/tool-schemas")
+    def tool_schemas() -> dict[str, list[dict[str, Any]]]:
+        return {
+            "tools": [
+                to_schema(get_current_weather),
+                to_schema(compare_weather),
+                to_schema(search_web),
+                to_schema(check_model_status),
+                to_schema(list_available_tools),
+            ]
+        }
+
     @app.get("/model-status")
     def model_status() -> dict[str, Any]:
         return check_model_status()
 
     @app.post("/weather")
     def weather(request: WeatherRequest) -> dict[str, str]:
-        return {
-            "result": get_current_weather(city=request.city, unit=request.unit),
-        }
+        return {"result": get_current_weather(city=request.city, unit=request.unit)}
 
     @app.post("/compare-weather")
     def compare_weather_endpoint(request: CompareWeatherRequest) -> dict[str, str]:
@@ -93,7 +92,7 @@ def create_app() -> FastAPI:
                 city_a=request.city_a,
                 city_b=request.city_b,
                 unit=request.unit,
-            ),
+            )
         }
 
     @app.post("/search")
@@ -106,15 +105,15 @@ def create_app() -> FastAPI:
     def ask(request: AskRequest) -> dict[str, Any]:
         try:
             return _build_agent().answer(request.question)
-        except ToolCallError as exc:
+        except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except Exception as exc:
+        except AgentExecutionError as exc:
             raise HTTPException(
                 status_code=502,
                 detail=(
-                    "The model backend could not answer the request. "
-                    "Make sure Ollama is running, the configured model is available, "
-                    "and the OpenAI-compatible endpoint is reachable."
+                    "The model backend could not complete the request. "
+                    "Make sure your OpenAI-compatible endpoint is reachable and the model is available. "
+                    f"Backend error: {exc}"
                 ),
             ) from exc
 

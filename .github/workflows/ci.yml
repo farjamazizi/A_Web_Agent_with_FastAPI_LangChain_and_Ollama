@@ -20,6 +20,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
 
       - name: Install backend dependencies
         run: |
@@ -29,8 +30,8 @@ jobs:
       - name: Compile backend sources
         run: python -m compileall src app/backend tests
 
-      - name: Run tests
-        run: pytest -q tests/test_api.py tests/test_schemas.py
+      - name: Run backend tests
+        run: pytest -q
 
   frontend:
     name: Frontend Build
@@ -43,7 +44,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "18"
+          node-version: "20"
 
       - name: Install frontend dependencies
         working-directory: app/frontend

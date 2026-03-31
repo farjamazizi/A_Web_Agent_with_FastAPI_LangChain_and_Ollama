@@ -1,8 +1,7 @@
 from typing import Literal
 
-from ask_web_agent.agent import ToolCallError, parse_tool_call
-from ask_web_agent.schemas import to_schema
 import ask_web_agent.tools as tools_module
+from ask_web_agent.schemas import to_schema
 from ask_web_agent.tools import (
     check_model_status,
     compare_weather,
@@ -27,46 +26,6 @@ def test_to_schema_builds_required_and_enum_fields() -> None:
         "celsius",
         "fahrenheit",
     ]
-
-
-def test_parse_tool_call_extracts_payload() -> None:
-    payload = parse_tool_call('TOOL_CALL:{"name":"demo_tool","args":{"city":"Boston"}}')
-
-    assert payload == {"name": "demo_tool", "args": {"city": "Boston"}}
-
-
-def test_parse_tool_call_accepts_code_fenced_json() -> None:
-    payload = parse_tool_call(
-        'TOOL_CALL:\n```json\n{"name":"compare_weather","args":{"city_a":"San Diego","city_b":"Boston"}}\n```'
-    )
-
-    assert payload == {
-        "name": "compare_weather",
-        "args": {"city_a": "San Diego", "city_b": "Boston"},
-    }
-
-
-def test_parse_tool_call_rejects_invalid_json() -> None:
-    try:
-        parse_tool_call('TOOL_CALL:{"name":}')
-    except ToolCallError:
-        pass
-    else:
-        raise AssertionError("Expected ToolCallError for invalid JSON")
-
-
-def test_compare_weather_mentions_both_cities() -> None:
-    result = compare_weather("San Diego", "Boston")
-
-    assert "San Diego" in result
-    assert "Boston" in result
-
-
-def test_get_current_weather_supports_fahrenheit() -> None:
-    result = get_current_weather("Boston", unit="fahrenheit")
-
-    assert "Boston" in result
-    assert "23 F" in result
 
 
 def test_list_available_tools_contains_expected_tools() -> None:
@@ -118,6 +77,52 @@ def test_search_web_normalizes_results(monkeypatch) -> None:
     ]
 
 
+def test_get_current_weather_formats_live_snapshot(monkeypatch) -> None:
+    monkeypatch.setattr(
+        tools_module,
+        "_fetch_weather_snapshot",
+        lambda city, unit="celsius": {
+            "resolved_name": city,
+            "country": "United States",
+            "temperature": 23,
+            "apparent_temperature": 21,
+            "humidity": 50,
+            "wind_speed": 11,
+            "weather_description": "clear sky",
+            "unit": unit,
+        },
+    )
+
+    result = get_current_weather("Boston", unit="fahrenheit")
+
+    assert "Boston, United States" in result
+    assert "fahrenheit" not in result
+    assert "F" in result
+
+
+def test_compare_weather_mentions_both_cities(monkeypatch) -> None:
+    def fake_snapshot(city: str, unit: str = "celsius"):
+        temperature = 30 if city == "San Diego" else 12
+        return {
+            "resolved_name": city,
+            "country": "United States",
+            "temperature": temperature,
+            "apparent_temperature": temperature,
+            "humidity": 50,
+            "wind_speed": 11,
+            "weather_description": "clear sky",
+            "unit": unit,
+        }
+
+    monkeypatch.setattr(tools_module, "_fetch_weather_snapshot", fake_snapshot)
+
+    result = compare_weather("San Diego", "Boston")
+
+    assert "San Diego" in result
+    assert "Boston" in result
+    assert "warmer" in result
+
+
 def test_check_model_status_reports_available_model(monkeypatch) -> None:
     class FakeModels:
         data = [type("Model", (), {"id": "llama3.2:3b"})()]
@@ -138,6 +143,7 @@ def test_check_model_status_reports_available_model(monkeypatch) -> None:
                 "model_name": "llama3.2:3b",
                 "openai_base_url": "http://localhost:11434/v1",
                 "openai_api_key": "ollama",
+                "request_timeout_seconds": 20,
             },
         )(),
     )
@@ -162,6 +168,7 @@ def test_check_model_status_reports_backend_error(monkeypatch) -> None:
                 "model_name": "llama3.2:3b",
                 "openai_base_url": "http://localhost:11434/v1",
                 "openai_api_key": "ollama",
+                "request_timeout_seconds": 20,
             },
         )(),
     )
